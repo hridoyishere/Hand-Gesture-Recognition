@@ -1,7 +1,9 @@
 import cv2
 import mediapipe as mp
+import serial
+import time
 
-from gesture import count_fingers
+from gesture import count_fingers, recognize_gesture
 
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
@@ -38,6 +40,19 @@ frame_timestamp = 0
 
 
 # -----------------------------
+# Connect Arduino
+# -----------------------------
+
+arduino = serial.Serial(
+    "/dev/ttyACM0",
+    9600
+)
+
+# Wait for Arduino to reset
+time.sleep(2)
+
+
+# -----------------------------
 # Main Loop
 # -----------------------------
 
@@ -49,20 +64,31 @@ while True:
         print("Could not access camera")
         break
 
-    # OpenCV uses BGR
-    # MediaPipe expects RGB
+
+    # -----------------------------
+    # Convert BGR → RGB
+    # -----------------------------
+
     rgb_frame = cv2.cvtColor(
         frame,
         cv2.COLOR_BGR2RGB
     )
 
-    # Convert frame to MediaPipe image
+
+    # -----------------------------
+    # Convert to MediaPipe Image
+    # -----------------------------
+
     mp_image = mp.Image(
         image_format=mp.ImageFormat.SRGB,
         data=rgb_frame
     )
 
-    # Detect hands
+
+    # -----------------------------
+    # Detect Hands
+    # -----------------------------
+
     result = detector.detect_for_video(
         mp_image,
         frame_timestamp
@@ -72,22 +98,46 @@ while True:
 
 
     # -----------------------------
-    # Process detected hands
+    # Process Detected Hands
     # -----------------------------
 
     if result.hand_landmarks:
 
-        for hand in result.hand_landmarks:
+        for i, hand in enumerate(result.hand_landmarks):
 
-            # Count raised fingers
+            # Count fingers
             finger_count = count_fingers(hand)
 
+            # Recognize gesture
+            gesture = recognize_gesture(
+                finger_count
+            )
 
-            # Display finger count
+            # Get hand name
+            hand_label = (
+                result.handedness[i][0].category_name
+            )
+
+
+            # -----------------------------
+            # Send Gesture to Arduino
+            # -----------------------------
+
+            arduino.write(
+                (gesture + "\n").encode()
+            )
+
+
+            # -----------------------------
+            # Display Gesture
+            # -----------------------------
+
+            text_y = 50 + (i * 50)
+
             cv2.putText(
                 frame,
-                f"Fingers: {finger_count}",
-                (20, 50),
+                f"{hand_label}: {gesture}",
+                (20, text_y),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 1,
                 (0, 255, 0),
@@ -95,7 +145,10 @@ while True:
             )
 
 
-            # Draw hand landmarks
+            # -----------------------------
+            # Draw Hand Landmarks
+            # -----------------------------
+
             for landmark in hand:
 
                 x = int(
@@ -116,7 +169,7 @@ while True:
 
 
     # -----------------------------
-    # Show camera
+    # Show Camera
     # -----------------------------
 
     cv2.imshow(
@@ -125,7 +178,10 @@ while True:
     )
 
 
-    # Press Q to quit
+    # -----------------------------
+    # Press Q to Quit
+    # -----------------------------
+
     if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
@@ -135,5 +191,7 @@ while True:
 # -----------------------------
 
 camera.release()
+
+arduino.close()
 
 cv2.destroyAllWindows()
